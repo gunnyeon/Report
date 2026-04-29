@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>현장별 매출·손익 관리 시스템</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+  <style>
+    body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .kpi-card { background: white; border-radius: 12px; padding: 1.25rem; border: 1px solid #e5e7eb; }
+    .kpi-label { font-size: 0.8rem; color: #6b7280; margin-bottom: 0.5rem; font-weight: 500; }
+    .kpi-value { font-size: 1.5rem; font-weight: 700; color: #111827; }
+    .kpi-sub { font-size: 0.75rem; color: #9ca3af; margin-top: 0.25rem; }
+    .btn { padding: 0.5rem 1rem; border-radius: 8px; font-weight: 500; transition: all 0.15s; cursor: pointer; font-size: 0.875rem; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-sm { padding: 0.25rem 0.625rem; font-size: 0.75rem; }
+    .input { padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; width: 100%; font-size: 0.875rem; }
+    .input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .cell-input { padding: 0.375rem; border: 1px solid transparent; width: 100%; text-align: right; font-size: 0.875rem; background: transparent; font-variant-numeric: tabular-nums; }
+    .cell-input:focus { outline: none; border-color: #2563eb; background: #eff6ff; }
+    .cell-input.modified { background: #fef3c7; }
+    .profit-positive { color: #059669; }
+    .profit-negative { color: #dc2626; }
+    .nav-item { padding: 0.625rem 1rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 0.625rem; font-size: 0.875rem; color: #4b5563; }
+    .nav-item:hover { background: #f3f4f6; color: #111827; }
+    .nav-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
+    .spinner { border: 3px solid #f3f4f6; border-top-color: #2563eb; border-radius: 50%; width: 24px; height: 24px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; padding: 0.75rem 1.25rem; border-radius: 8px; color: white; font-size: 0.875rem; z-index: 9999; animation: slideIn 0.3s; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .toast-success { background: #059669; }
+    .toast-error { background: #dc2626; }
+    .toast-info { background: #2563eb; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9000; display: flex; align-items: center; justify-content: center; }
+    .modal-content { background: white; border-radius: 12px; padding: 1.5rem; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    table.data { width: 100%; border-collapse: collapse; }
+    table.data th { background: #f9fafb; padding: 0.625rem; text-align: left; font-weight: 600; font-size: 0.75rem; color: #6b7280; text-transform: uppercase; border-bottom: 1px solid #e5e7eb; }
+    table.data td { padding: 0.75rem 0.625rem; border-bottom: 1px solid #f3f4f6; font-size: 0.875rem; }
+    table.data tr:hover { background: #f9fafb; }
+    .num { font-variant-numeric: tabular-nums; text-align: right; }
+    @media (max-width: 768px) {
+      #sidebar { transform: translateX(-100%); transition: transform 0.3s; position: fixed; height: 100vh; z-index: 50; }
+      #sidebar.open { transform: translateX(0); }
+      #sidebar-toggle { display: block !important; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+
+<div class="flex h-screen">
+  <!-- Sidebar -->
+  <aside id="sidebar" class="w-60 bg-white border-r border-gray-200 flex flex-col">
+    <div class="p-4 border-b">
+      <h1 class="text-lg font-bold text-gray-900">매출·손익 관리</h1>
+      <p class="text-xs text-gray-500 mt-1">현장별 P&L 시스템</p>
+    </div>
+    <nav class="flex-1 p-3 space-y-1">
+      <div class="nav-item" data-page="dashboard">📊 대시보드</div>
+      <div class="nav-item" data-page="projects">🏗 현장 관리</div>
+      <div class="nav-item" data-page="monthly">📝 월별 실적 입력</div>
+      <div class="nav-item" data-page="analysis">📈 계획 대비 분석</div>
+    </nav>
+    <div class="p-3 border-t text-xs text-gray-500">
+      <div id="user-info">로컬 사용자</div>
+      <button onclick="seedSample()" class="text-blue-600 hover:underline mt-1">샘플 데이터 추가</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Top bar -->
+    <header class="bg-white border-b px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <button id="sidebar-toggle" class="p-1 md:hidden" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <h2 id="page-title" class="text-lg font-semibold text-gray-900">대시보드</h2>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="month" id="ym-picker" class="input" style="width:auto;">
+        <button onclick="navigate(window.__currentPage || 'dashboard')" class="btn btn-secondary">🔄 새로고침</button>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main id="content" class="flex-1 overflow-auto p-6">
+      <div class="flex justify-center py-20"><div class="spinner"></div></div>
+    </main>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// API 클라이언트
+// ============================================================
+const Api = {
+  async call(action, params = {}) {
+    const res = await fetch('/api/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'API 오류');
+    return json.data;
+  }
+};
+
+// ============================================================
+// 유틸리티
+// ============================================================
+const Fmt = {
+  num(n) {
+    if (n === null || n === undefined || isNaN(n)) return '0';
+    return Math.round(n).toLocaleString('ko-KR');
+  },
+  money(n) {
+    if (!n) return '0원';
+    const abs = Math.abs(n);
+    if (abs >= 100000000) return (n / 100000000).toFixed(1) + '억';
+    if (abs >= 10000) return (n / 10000).toFixed(0) + '만';
+    return n.toLocaleString('ko-KR');
+  },
+  pct(n) {
+    if (n === null || n === undefined || isNaN(n)) return '0.0%';
+    return n.toFixed(1) + '%';
+  },
+  profit(n) {
+    if (!n) return '<span>0</span>';
+    const cls = n >= 0 ? 'profit-positive' : 'profit-negative';
+    return `<span class="${cls}">${Fmt.num(n)}</span>`;
+  },
+  parseNum(s) {
+    if (!s) return 0;
+    return Number(String(s).replace(/,/g, '')) || 0;
+  }
+};
+
+// ============================================================
+// Toast & Modal
+// ============================================================
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function showModal(html) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal-content">${html}</div>`;
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function confirmModal(message) {
+  return new Promise((resolve) => {
+    const overlay = showModal(`
+      <p class="text-gray-800 mb-4">${message}</p>
+      <div class="flex justify-end gap-2">
+        <button id="cm-cancel" class="btn btn-secondary">취소</button>
+        <button id="cm-ok" class="btn btn-danger">확인</button>
+      </div>
+    `);
+    overlay.querySelector('#cm-cancel').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('#cm-ok').onclick = () => { overlay.remove(); resolve(true); };
+  });
+}
+
+// ============================================================
+// 라우팅
+// ============================================================
+async function navigate(page, ctx = {}) {
+  window.__currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  const titles = {
+    dashboard: '대시보드',
+    projects: '현장 관리',
+    'project-detail': '현장 상세',
+    monthly: '월별 실적 입력',
+    analysis: '계획 대비 분석'
+  };
+  document.getElementById('page-title').textContent = titles[page] || page;
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="flex justify-center py-20"><div class="spinner"></div></div>';
+  try {
+    if (Pages[page]) await Pages[page](ctx);
+    else content.innerHTML = '<p class="text-gray-500">페이지를 찾을 수 없습니다.</p>';
+  } catch (err) {
+    console.error(err);
+    content.innerHTML = `<div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded">${err.message}</div>`;
+  }
+}
+
+async function seedSample() {
+  if (!await confirmModal('샘플 데이터를 추가하시겠습니까? (이미 데이터가 있으면 건너뜁니다)')) return;
+  try {
+    const r = await Api.call('system.seedSample');
+    if (r.skipped) toast(r.message, 'info');
+    else { toast('샘플 데이터를 추가했습니다.', 'success'); navigate('dashboard'); }
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ============================================================
+// 페이지 정의
+// ============================================================
+const Pages = {};
+
+// -----------------------------
+// 대시보드
+// -----------------------------
+Pages.dashboard = async () => {
+  const ym = document.getElementById('ym-picker').value;
+  const [summary, trend, comparison] = await Promise.all([
+    Api.call('dashboard.summary', { yearMonth: ym }),
+    Api.call('dashboard.trend', { year: ym ? ym.slice(0, 4) : new Date().getFullYear() }),
+    Api.call('dashboard.comparison', { yearMonth: ym })
+  ]);
+
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="kpi-card"><div class="kpi-label">총 수주금액</div><div class="kpi-value">${Fmt.money(summary.totalContractAmount)}</div><div class="kpi-sub">${summary.projectCount}개 현장</div></div>
+      <div class="kpi-card"><div class="kpi-label">연간 사업계획</div><div class="kpi-value">${Fmt.money(summary.totalAnnualPlan)}</div><div class="kpi-sub">${summary.year}년</div></div>
+      <div class="kpi-card"><div class="kpi-label">누계 매출</div><div class="kpi-value">${Fmt.money(summary.ytdRevenue)}</div><div class="kpi-sub">달성률 ${Fmt.pct(summary.achievementRate)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">누계 이익</div><div class="kpi-value ${summary.ytdProfit >= 0 ? 'profit-positive' : 'profit-negative'}">${Fmt.money(summary.ytdProfit)}</div><div class="kpi-sub">원가율 ${Fmt.pct(summary.ytdCostRatio)}</div></div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="kpi-card"><div class="kpi-label">누계 매출원가</div><div class="kpi-value">${Fmt.money(summary.ytdCost)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">잔여 (계획 대비)</div><div class="kpi-value">${Fmt.money(summary.remaining)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">당월 매출</div><div class="kpi-value">${Fmt.money(summary.currentRevenue)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">당월 이익</div><div class="kpi-value ${summary.currentProfit >= 0 ? 'profit-positive' : 'profit-negative'}">${Fmt.money(summary.currentProfit)}</div><div class="kpi-sub">원가율 ${Fmt.pct(summary.currentCostRatio)}</div></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="font-semibold mb-4">월별 추이 (${summary.year}년)</h3>
+        <canvas id="trend-chart" height="100"></canvas>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 class="font-semibold mb-4">현장별 매출 비교</h3>
+        <canvas id="comparison-chart" height="100"></canvas>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="p-4 border-b"><h3 class="font-semibold">현장 목록</h3></div>
+      <table class="data">
+        <thead><tr><th>현장명</th><th>발주처</th><th class="num">연간계획</th><th class="num">누계매출</th><th class="num">달성률</th><th class="num">누계이익</th><th class="num">원가율</th></tr></thead>
+        <tbody>
+          ${summary.projectSummary.map(p => `
+            <tr class="cursor-pointer" onclick="navigate('project-detail', { id: '${p.id}' })">
+              <td class="font-medium">${p.name}</td>
+              <td class="text-gray-600">${p.client || '-'}</td>
+              <td class="num">${Fmt.money(p.annualPlanAmount)}</td>
+              <td class="num">${Fmt.money(p.ytdRevenue)}</td>
+              <td class="num">${Fmt.pct(p.achievementRate)}</td>
+              <td class="num">${Fmt.profit(p.ytdProfit)}</td>
+              <td class="num">${Fmt.pct(p.ytdCostRatio)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="7" class="text-center text-gray-400 py-8">현장이 없습니다.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // 차트 렌더링
+  new Chart(document.getElementById('trend-chart'), {
+    type: 'bar',
+    data: {
+      labels: trend.map(t => t.month + '월'),
+      datasets: [
+        { label: '매출', data: trend.map(t => t.revenue / 100000000), backgroundColor: '#3b82f6' },
+        { label: '매출원가', data: trend.map(t => t.cost / 100000000), backgroundColor: '#f59e0b' },
+        { label: '이익', data: trend.map(t => t.profit / 100000000), type: 'line', borderColor: '#10b981', backgroundColor: '#10b981', tension: 0.3 }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { ticks: { callback: v => v + '억' } } } }
+  });
+
+  new Chart(document.getElementById('comparison-chart'), {
+    type: 'bar',
+    data: {
+      labels: comparison.map(c => c.name),
+      datasets: [
+        { label: '연간계획', data: comparison.map(c => c.annualPlan / 100000000), backgroundColor: '#cbd5e1' },
+        { label: '누계매출', data: comparison.map(c => c.ytdRevenue / 100000000), backgroundColor: '#3b82f6' }
+      ]
+    },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { x: { ticks: { callback: v => v + '억' } } } }
+  });
+};
+
+// -----------------------------
+// 현장 관리
+// -----------------------------
+Pages.projects = async () => {
+  const projects = await Api.call('project.list');
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <p class="text-gray-600">총 ${projects.length}개 현장</p>
+      <button onclick="showProjectForm()" class="btn btn-primary">+ 신규 현장</button>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="data">
+        <thead><tr><th>현장명</th><th>발주처</th><th class="num">수주금액</th><th class="num">연간계획</th><th>공사기간</th><th>작업</th></tr></thead>
+        <tbody>
+          ${projects.map(p => `
+            <tr>
+              <td class="font-medium cursor-pointer text-blue-600" onclick="navigate('project-detail', { id: '${p.id}' })">${p.name}</td>
+              <td>${p.client || '-'}</td>
+              <td class="num">${Fmt.money(p.contractAmount)}</td>
+              <td class="num">${Fmt.money(p.annualPlanAmount)}</td>
+              <td class="text-xs text-gray-500">${p.startDate || '-'} ~ ${p.endDate || '-'}</td>
+              <td>
+                <button onclick='showProjectForm(${JSON.stringify(p)})' class="btn btn-sm btn-secondary">수정</button>
+                <button onclick="removeProject('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="btn btn-sm btn-danger">삭제</button>
+              </td>
+            </tr>
+          `).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">현장이 없습니다. + 신규 현장 버튼을 눌러 추가하세요.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+};
+
+window.showProjectForm = (project) => {
+  const isEdit = !!project;
+  const p = project || { name: '', client: '', contractAmount: 0, startDate: '', endDate: '', annualPlanAmount: 0 };
+  const overlay = showModal(`
+    <h3 class="text-lg font-bold mb-4">${isEdit ? '현장 수정' : '신규 현장 등록'}</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm mb-1">현장명 *</label><input id="pf-name" class="input" value="${p.name}"></div>
+      <div><label class="block text-sm mb-1">발주처</label><input id="pf-client" class="input" value="${p.client || ''}"></div>
+      <div><label class="block text-sm mb-1">수주금액</label><input id="pf-contract" class="input num" value="${Fmt.num(p.contractAmount)}"></div>
+      <div><label class="block text-sm mb-1">연간 사업계획</label><input id="pf-annual" class="input num" value="${Fmt.num(p.annualPlanAmount)}"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-sm mb-1">착공일</label><input id="pf-start" type="date" class="input" value="${p.startDate || ''}"></div>
+        <div><label class="block text-sm mb-1">준공예정일</label><input id="pf-end" type="date" class="input" value="${p.endDate || ''}"></div>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="pf-cancel" class="btn btn-secondary">취소</button>
+      <button id="pf-save" class="btn btn-primary">저장</button>
+    </div>
+  `);
+  // 콤마 자동 포맷
+  ['pf-contract', 'pf-annual'].forEach(id => {
+    const el = overlay.querySelector('#' + id);
+    el.addEventListener('input', () => {
+      const v = Fmt.parseNum(el.value);
+      el.value = Fmt.num(v);
+    });
+  });
+  overlay.querySelector('#pf-cancel').onclick = () => overlay.remove();
+  overlay.querySelector('#pf-save').onclick = async () => {
+    const data = {
+      name: overlay.querySelector('#pf-name').value,
+      client: overlay.querySelector('#pf-client').value,
+      contractAmount: Fmt.parseNum(overlay.querySelector('#pf-contract').value),
+      annualPlanAmount: Fmt.parseNum(overlay.querySelector('#pf-annual').value),
+      startDate: overlay.querySelector('#pf-start').value,
+      endDate: overlay.querySelector('#pf-end').value
+    };
+    try {
+      if (isEdit) await Api.call('project.update', { ...data, id: p.id });
+      else await Api.call('project.create', data);
+      toast(isEdit ? '수정되었습니다.' : '등록되었습니다.', 'success');
+      overlay.remove();
+      navigate('projects');
+    } catch (err) { toast(err.message, 'error'); }
+  };
+};
+
+window.removeProject = async (id, name) => {
+  if (!await confirmModal(`'${name}' 현장을 삭제하시겠습니까?\n월별 실적과 추정 데이터도 함께 삭제됩니다.`)) return;
+  try {
+    await Api.call('project.remove', { id });
+    toast('삭제되었습니다.', 'success');
+    navigate('projects');
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+// -----------------------------
+// 현장 상세
+// -----------------------------
+Pages['project-detail'] = async (ctx) => {
+  const ym = document.getElementById('ym-picker').value;
+  const data = await Api.call('project.analysis', { projectId: ctx.id, yearMonth: ym });
+  const content = document.getElementById('content');
+
+  content.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+      <div class="flex justify-between items-start">
+        <div>
+          <h2 class="text-xl font-bold">${data.project.name}</h2>
+          <p class="text-gray-600 text-sm mt-1">${data.project.client || '-'} · ${data.project.startDate || '-'} ~ ${data.project.endDate || '-'}</p>
+        </div>
+        <button onclick="navigate('projects')" class="btn btn-secondary">목록으로</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div class="kpi-card"><div class="kpi-label">수주금액</div><div class="kpi-value">${Fmt.money(data.project.contractAmount)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">연간계획</div><div class="kpi-value">${Fmt.money(data.project.annualPlanAmount)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">누계매출</div><div class="kpi-value">${Fmt.money(data.ytd.revenue)}</div><div class="kpi-sub">달성률 ${Fmt.pct(data.ytd.achievementRate)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">누계이익</div><div class="kpi-value ${data.ytd.profit >= 0 ? 'profit-positive' : 'profit-negative'}">${Fmt.money(data.ytd.profit)}</div><div class="kpi-sub">원가율 ${Fmt.pct(data.ytd.costRatio)}</div></div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-semibold">준공 추정</h3>
+        <button onclick='showForecastForm("${data.project.id}", ${JSON.stringify(data.forecast || null)})' class="btn btn-sm btn-secondary">추정값 입력/수정</button>
+      </div>
+      ${data.forecast ? `
+        <div class="grid grid-cols-4 gap-4">
+          <div><div class="text-xs text-gray-500">추정매출</div><div class="font-semibold">${Fmt.money(data.forecast.estimatedRevenue)}</div></div>
+          <div><div class="text-xs text-gray-500">추정원가</div><div class="font-semibold">${Fmt.money(data.forecast.estimatedCost)}</div></div>
+          <div><div class="text-xs text-gray-500">추정이익</div><div class="font-semibold ${data.forecast.estimatedProfit >= 0 ? 'profit-positive' : 'profit-negative'}">${Fmt.money(data.forecast.estimatedProfit)}</div></div>
+          <div><div class="text-xs text-gray-500">추정원가율</div><div class="font-semibold">${Fmt.pct(data.forecast.estimatedCostRatio)}</div></div>
+        </div>
+      ` : '<p class="text-gray-400 text-sm">추정값이 입력되지 않았습니다.</p>'}
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <div class="p-4 border-b flex justify-between items-center">
+        <h3 class="font-semibold">${data.year}년 월별 실적</h3>
+        <button onclick="saveMonthGrid('${data.project.id}')" class="btn btn-primary">전체 저장</button>
+      </div>
+      <table class="data">
+        <thead><tr><th>월</th><th class="num">매출</th><th class="num">매출원가</th><th class="num">매출이익</th><th class="num">원가율</th></tr></thead>
+        <tbody id="month-grid">
+          ${data.monthGrid.map((m, i) => `
+            <tr data-ym="${m.yearMonth}">
+              <td class="font-medium">${parseInt(m.yearMonth.slice(5))}월</td>
+              <td><input class="cell-input grid-rev" data-row="${i}" value="${Fmt.num(m.revenue)}"></td>
+              <td><input class="cell-input grid-cost" data-row="${i}" value="${Fmt.num(m.cost)}"></td>
+              <td class="num grid-profit" data-row="${i}">${Fmt.profit(m.profit)}</td>
+              <td class="num grid-ratio" data-row="${i}">${Fmt.pct(m.costRatio)}</td>
+            </tr>
+          `).join('')}
+          <tr class="bg-gray-50 font-semibold">
+            <td>합계</td>
+            <td class="num" id="grid-total-rev">${Fmt.num(data.monthGrid.reduce((s, m) => s + m.revenue, 0))}</td>
+            <td class="num" id="grid-total-cost">${Fmt.num(data.monthGrid.reduce((s, m) => s + m.cost, 0))}</td>
+            <td class="num" id="grid-total-profit">${Fmt.profit(data.monthGrid.reduce((s, m) => s + m.profit, 0))}</td>
+            <td class="num"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <h3 class="font-semibold mb-4">계획 vs 실적 vs 추정</h3>
+      <canvas id="project-chart" height="80"></canvas>
+    </div>
+  `;
+
+  // 그리드 입력 자동 계산
+  document.querySelectorAll('.cell-input').forEach(input => {
+    input.addEventListener('input', () => {
+      input.classList.add('modified');
+      input.value = Fmt.num(Fmt.parseNum(input.value));
+      const row = input.dataset.row;
+      const rev = Fmt.parseNum(document.querySelector(`.grid-rev[data-row="${row}"]`).value);
+      const cost = Fmt.parseNum(document.querySelector(`.grid-cost[data-row="${row}"]`).value);
+      document.querySelector(`.grid-profit[data-row="${row}"]`).innerHTML = Fmt.profit(rev - cost);
+      document.querySelector(`.grid-ratio[data-row="${row}"]`).textContent = Fmt.pct(rev > 0 ? (cost / rev * 100) : 0);
+      // 합계 갱신
+      let tRev = 0, tCost = 0;
+      document.querySelectorAll('.grid-rev').forEach(el => tRev += Fmt.parseNum(el.value));
+      document.querySelectorAll('.grid-cost').forEach(el => tCost += Fmt.parseNum(el.value));
+      document.getElementById('grid-total-rev').textContent = Fmt.num(tRev);
+      document.getElementById('grid-total-cost').textContent = Fmt.num(tCost);
+      document.getElementById('grid-total-profit').innerHTML = Fmt.profit(tRev - tCost);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const row = parseInt(input.dataset.row);
+        const cls = input.classList.contains('grid-rev') ? '.grid-rev' : '.grid-cost';
+        const next = document.querySelector(`${cls}[data-row="${row + 1}"]`);
+        if (next) next.focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const row = parseInt(input.dataset.row);
+        const cls = input.classList.contains('grid-rev') ? '.grid-rev' : '.grid-cost';
+        const prev = document.querySelector(`${cls}[data-row="${row - 1}"]`);
+        if (prev) prev.focus();
+      }
+    });
+  });
+
+  // 차트
+  new Chart(document.getElementById('project-chart'), {
+    type: 'bar',
+    data: {
+      labels: ['연간계획', '누계실적', '준공추정'],
+      datasets: [{
+        label: '금액 (억)',
+        data: [
+          data.project.annualPlanAmount / 100000000,
+          data.ytd.revenue / 100000000,
+          data.forecast ? data.forecast.estimatedRevenue / 100000000 : 0
+        ],
+        backgroundColor: ['#cbd5e1', '#3b82f6', '#10b981']
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => v + '억' } } } }
+  });
+};
+
+window.showForecastForm = (projectId, current) => {
+  const f = current || { estimatedRevenue: 0, estimatedCost: 0, memo: '' };
+  const overlay = showModal(`
+    <h3 class="text-lg font-bold mb-4">준공 추정 입력</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm mb-1">추정 매출</label><input id="ff-rev" class="input num" value="${Fmt.num(f.estimatedRevenue)}"></div>
+      <div><label class="block text-sm mb-1">추정 매출원가</label><input id="ff-cost" class="input num" value="${Fmt.num(f.estimatedCost)}"></div>
+      <div><label class="block text-sm mb-1">메모</label><textarea id="ff-memo" class="input" rows="2">${f.memo || ''}</textarea></div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="ff-cancel" class="btn btn-secondary">취소</button>
+      <button id="ff-save" class="btn btn-primary">저장</button>
+    </div>
+  `);
+  ['ff-rev', 'ff-cost'].forEach(id => {
+    const el = overlay.querySelector('#' + id);
+    el.addEventListener('input', () => { el.value = Fmt.num(Fmt.parseNum(el.value)); });
+  });
+  overlay.querySelector('#ff-cancel').onclick = () => overlay.remove();
+  overlay.querySelector('#ff-save').onclick = async () => {
+    try {
+      await Api.call('forecast.upsert', {
+        projectId,
+        estimatedRevenue: Fmt.parseNum(overlay.querySelector('#ff-rev').value),
+        estimatedCost: Fmt.parseNum(overlay.querySelector('#ff-cost').value),
+        memo: overlay.querySelector('#ff-memo').value
+      });
+      toast('저장되었습니다.', 'success');
+      overlay.remove();
+      navigate('project-detail', { id: projectId });
+    } catch (err) { toast(err.message, 'error'); }
+  };
+};
+
+window.saveMonthGrid = async (projectId) => {
+  const items = [];
+  document.querySelectorAll('#month-grid tr[data-ym]').forEach(tr => {
+    const ym = tr.dataset.ym;
+    const rev = Fmt.parseNum(tr.querySelector('.grid-rev').value);
+    const cost = Fmt.parseNum(tr.querySelector('.grid-cost').value);
+    if (rev > 0 || cost > 0) {
+      items.push({ projectId, yearMonth: ym, revenue: rev, cost });
+    }
+  });
+  if (items.length === 0) { toast('저장할 데이터가 없습니다.', 'info'); return; }
+  try {
+    const r = await Api.call('monthly.bulkUpsert', { items });
+    toast(`신규 ${r.inserted}건, 수정 ${r.updated}건${r.errors.length ? ', 오류 ' + r.errors.length + '건' : ''}`, r.errors.length ? 'error' : 'success');
+    if (r.errors.length) console.warn(r.errors);
+    navigate('project-detail', { id: projectId });
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+// -----------------------------
+// 월별 실적 입력 (전체 현장)
+// -----------------------------
+Pages.monthly = async () => {
+  const ym = document.getElementById('ym-picker').value || (new Date().toISOString().slice(0, 7));
+  const projects = await Api.call('project.list');
+  const summary = await Api.call('dashboard.summary', { yearMonth: ym });
+  const allMonthly = await Api.call('monthly.listAll');
+
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <p class="text-sm text-gray-600 mb-4">${ym} 매출/매출원가를 일괄 입력합니다. 매출이 0인 행은 저장되지 않습니다.</p>
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>현장</th>
+            <th class="num">연간계획</th>
+            <th class="num">누계실적</th>
+            <th class="num">달성률</th>
+            <th class="num">${ym} 매출</th>
+            <th class="num">${ym} 매출원가</th>
+            <th class="num">이익</th>
+            <th class="num">원가율</th>
+          </tr>
+        </thead>
+        <tbody id="bulk-grid">
+          ${projects.map((p, i) => {
+            const ps = summary.projectSummary.find(x => x.id === p.id) || { ytdRevenue: 0, achievementRate: 0 };
+            const existing = allMonthly.find(m => m.projectId === p.id && m.yearMonth === ym) || { revenue: 0, cost: 0 };
+            return `
+              <tr data-pid="${p.id}">
+                <td class="font-medium">${p.name}</td>
+                <td class="num">${Fmt.money(p.annualPlanAmount)}</td>
+                <td class="num">${Fmt.money(ps.ytdRevenue)}</td>
+                <td class="num">${Fmt.pct(ps.achievementRate)}</td>
+                <td><input class="cell-input bulk-rev" data-row="${i}" value="${Fmt.num(existing.revenue)}"></td>
+                <td><input class="cell-input bulk-cost" data-row="${i}" value="${Fmt.num(existing.cost)}"></td>
+                <td class="num bulk-profit" data-row="${i}">${Fmt.profit(existing.revenue - existing.cost)}</td>
+                <td class="num bulk-ratio" data-row="${i}">${Fmt.pct(existing.revenue > 0 ? (existing.cost / existing.revenue * 100) : 0)}</td>
+              </tr>
+            `;
+          }).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">현장이 없습니다.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div class="flex justify-end">
+      <button onclick="saveBulkMonthly('${ym}')" class="btn btn-primary">전체 저장</button>
+    </div>
+  `;
+
+  document.querySelectorAll('.bulk-rev, .bulk-cost').forEach(input => {
+    input.addEventListener('input', () => {
+      input.classList.add('modified');
+      input.value = Fmt.num(Fmt.parseNum(input.value));
+      const row = input.dataset.row;
+      const rev = Fmt.parseNum(document.querySelector(`.bulk-rev[data-row="${row}"]`).value);
+      const cost = Fmt.parseNum(document.querySelector(`.bulk-cost[data-row="${row}"]`).value);
+      document.querySelector(`.bulk-profit[data-row="${row}"]`).innerHTML = Fmt.profit(rev - cost);
+      document.querySelector(`.bulk-ratio[data-row="${row}"]`).textContent = Fmt.pct(rev > 0 ? (cost / rev * 100) : 0);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const row = parseInt(input.dataset.row);
+        const cls = input.classList.contains('bulk-rev') ? '.bulk-rev' : '.bulk-cost';
+        const next = document.querySelector(`${cls}[data-row="${row + 1}"]`);
+        if (next) next.focus();
+      }
+    });
+  });
+};
+
+window.saveBulkMonthly = async (ym) => {
+  const items = [];
+  document.querySelectorAll('#bulk-grid tr[data-pid]').forEach(tr => {
+    const pid = tr.dataset.pid;
+    const rev = Fmt.parseNum(tr.querySelector('.bulk-rev').value);
+    const cost = Fmt.parseNum(tr.querySelector('.bulk-cost').value);
+    if (rev > 0 || cost > 0) {
+      items.push({ projectId: pid, yearMonth: ym, revenue: rev, cost });
+    }
+  });
+  if (items.length === 0) { toast('저장할 데이터가 없습니다.', 'info'); return; }
+  try {
+    const r = await Api.call('monthly.bulkUpsert', { items });
+    toast(`신규 ${r.inserted}건, 수정 ${r.updated}건${r.errors.length ? ', 오류 ' + r.errors.length + '건' : ''}`, r.errors.length ? 'error' : 'success');
+    if (r.errors.length) console.warn(r.errors);
+    navigate('monthly');
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+// -----------------------------
+// 계획 대비 분석
+// -----------------------------
+Pages.analysis = async () => {
+  const ym = document.getElementById('ym-picker').value;
+  const comparison = await Api.call('dashboard.comparison', { yearMonth: ym });
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+      <div class="p-4 border-b"><h3 class="font-semibold">현장별 계획 vs 실적 vs 추정</h3></div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th>현장</th>
+            <th class="num">연간계획</th>
+            <th class="num">누계실적</th>
+            <th class="num">달성률</th>
+            <th class="num">갭(계획-실적)</th>
+            <th class="num">준공추정</th>
+            <th class="num">추정 vs 계획</th>
+            <th class="num">추정이익</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${comparison.map(c => `
+            <tr>
+              <td class="font-medium">${c.name}</td>
+              <td class="num">${Fmt.money(c.annualPlan)}</td>
+              <td class="num">${Fmt.money(c.ytdRevenue)}</td>
+              <td class="num">${Fmt.pct(c.achievementRate)}</td>
+              <td class="num ${(c.annualPlan - c.ytdRevenue) >= 0 ? 'text-orange-600' : 'profit-positive'}">${Fmt.money(c.annualPlan - c.ytdRevenue)}</td>
+              <td class="num">${Fmt.money(c.forecastRevenue)}</td>
+              <td class="num">${Fmt.profit(c.forecastRevenue - c.annualPlan)}</td>
+              <td class="num">${Fmt.profit(c.forecastProfit)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">데이터가 없습니다.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <h3 class="font-semibold mb-4">계획 vs 실적 vs 추정 비교</h3>
+      <canvas id="analysis-chart" height="80"></canvas>
+    </div>
+  `;
+  new Chart(document.getElementById('analysis-chart'), {
+    type: 'bar',
+    data: {
+      labels: comparison.map(c => c.name),
+      datasets: [
+        { label: '연간계획', data: comparison.map(c => c.annualPlan / 100000000), backgroundColor: '#cbd5e1' },
+        { label: '누계실적', data: comparison.map(c => c.ytdRevenue / 100000000), backgroundColor: '#3b82f6' },
+        { label: '준공추정', data: comparison.map(c => c.forecastRevenue / 100000000), backgroundColor: '#10b981' }
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { ticks: { callback: v => v + '억' } } } }
+  });
+};
+
+// ============================================================
+// 초기화
+// ============================================================
+window.addEventListener('DOMContentLoaded', async () => {
+  // 년월 피커 초기값
+  const now = new Date();
+  document.getElementById('ym-picker').value = now.toISOString().slice(0, 7);
+  document.getElementById('ym-picker').addEventListener('change', () => {
+    navigate(window.__currentPage || 'dashboard');
+  });
+
+  // 사이드바 클릭
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.addEventListener('click', () => navigate(el.dataset.page));
+  });
+
+  // 사용자 정보
+  try {
+    const user = await Api.call('system.user');
+    document.getElementById('user-info').textContent = `${user.name} (${user.role})`;
+  } catch {}
+
+  navigate('dashboard');
+});
+</script>
+</body>
+</html>
